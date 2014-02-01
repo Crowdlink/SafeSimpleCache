@@ -19,6 +19,12 @@ from werkzeug.contrib.cache import BaseCache
 from flask_ssc.synch import RWLock
 
 
+def safesimplecache(app, config, args, kwargs):
+    """ A wrapper function for use by Flask-Cache """
+    kwargs.update(dict(threshold=config['CACHE_THRESHOLD']))
+    return SafeSimpleCache(*args, **kwargs)
+
+
 class SafeSimpleCache(BaseCache):
     """Simple memory cache for multi process environments.
 
@@ -37,7 +43,7 @@ class SafeSimpleCache(BaseCache):
         self._pickle = pickle
         self._lock = RWLock()
 
-    def _setial(self, val):
+    def _serial(self, val):
         if self._pickle:
             return pickle.dumps(val, pickle.HIGHEST_PROTOCOL)
         return val
@@ -67,7 +73,7 @@ class SafeSimpleCache(BaseCache):
             with self._lock.reader():
                 expires, value = self._cache[key]
                 if expires > time():
-                    return pickle.loads(value)
+                    return self._deserial(value)
         except (KeyError, pickle.PickleError):
             return None
 
@@ -75,8 +81,7 @@ class SafeSimpleCache(BaseCache):
         if timeout is None:
             timeout = self.default_timeout
         self._prune()
-        new_key = (time() + timeout, pickle.dumps(value,
-                                                  pickle.HIGHEST_PROTOCOL))
+        new_key = (time() + timeout, self._serial(value))
         with self._lock.writer():
             self._cache[key] = new_key
         return True
@@ -88,8 +93,7 @@ class SafeSimpleCache(BaseCache):
         with self._lock.reader():
             if key in self._cache:
                 return False
-        item = (time() + timeout, pickle.dumps(value,
-            pickle.HIGHEST_PROTOCOL))
+        item = (time() + timeout, self._serial(value))
         with self._lock.writer():
             self._cache.setdefault(key, item)
         return True
